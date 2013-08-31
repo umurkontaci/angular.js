@@ -47,8 +47,99 @@ exports.ngVersions = function() {
         versions.push(matches[1]);
       }
     });
-  versions.push(exports.ngCurrentVersion().full);
-  return versions;
+
+  //match the future version of AngularJS that is set in the package.json file
+  return expandVersions(sortVersionsNatrually(versions), exports.ngCurrentVersion().full);
+
+  function expandVersions(versions, latestVersion) {
+    //copy the array to avoid changing the versions param data
+    //the latest version is not on the git tags list, but
+    //docs.angularjs.org will always point to master as of 1.2
+    versions = versions.concat([latestVersion]);
+
+    var firstUnstable, expanded = [];
+    for(var i=versions.length-1;i>=0;i--) {
+      var version = versions[i],
+          split = version.split('.'),
+          isMaster = version == latestVersion,
+          isStable = split[1] % 2 == 0;
+
+      var title = 'AngularJS - v' + version;
+
+      //anything that is stable before being unstable is a rc1 version
+      //just like with AngularJS 1.2.0rc1 (even though it's apart of the
+      //1.1.5 API
+      if(isMaster || (isStable && !firstUnstable)) {
+        isStable = false;
+      }
+      else {
+        firstUnstable = firstUnstable || version;
+      }
+
+      var docsPath = version < '1.0.2' ?  'docs-' + version : 'docs';
+
+      var url = isMaster ?
+        'http://docs.angularjs.org' :
+        'http://code.angularjs.org/' + version + '/' + docsPath;
+
+      expanded.push({
+        version : version,
+        stable : isStable,
+        title : title,
+        group : (isStable ? 'Stable' : 'Unstable'),
+        url : url
+      });
+    };
+
+    return expanded;
+  };
+
+  function sortVersionsNatrually(versions) {
+    var versionMap = {},
+        NON_RC_RELEASE_NUMBER = 999;
+    for(var i = versions.length - 1; i >= 0; i--) {
+      var version = versions[i];
+      var split = version.split(/\.|rc/);
+       var baseVersion = split[0] + '.' + split[1] + '.' + split[2];
+
+      //create a map of RC versions for each version
+      //this way each RC version can be sorted in "natural" order
+      versionMap[baseVersion] = versionMap[baseVersion] || [];
+
+      //NON_RC_RELEASE_NUMBER is used to signal the non-RC version for the release and
+      //it will always appear at the top of the list since the number is so high!
+      versionMap[baseVersion].push(
+        version == baseVersion ? NON_RC_RELEASE_NUMBER : parseInt(version.match(/rc(\d+)/)[1]));
+    };
+
+    //flatten the map so that the RC versions occur in a natural sorted order
+    //and the official non-RC version shows up at the top of the list of sorted
+    //RC versions!
+    var angularVersions = [];
+    sortedKeys(versionMap).forEach(function(key) {
+      var versions = versionMap[key];
+
+      //basic numerical sort
+      versions.sort(function(a,b) {
+        return a - b;
+      });
+
+      versions.forEach(function(v) {
+        angularVersions.push(v == NON_RC_RELEASE_NUMBER ? key : key + 'rc' + v);
+      });
+    });
+
+    return angularVersions;
+  };
+
+  function sortedKeys(obj) {
+    var keys = [];
+    for(var key in obj) {
+      keys.push(key);
+    };
+    keys.sort(true);
+    return keys;
+  };
 };
 
 exports.ngCurrentVersion = function() {
@@ -276,6 +367,9 @@ Doc.prototype = {
         replace(/{@type\s+(\S+)(?:\s+(\S+))?}/g, function(_, type, url) {
           url = url || '#';
           return '<a href="' + url + '" class="' + self.prepare_type_hint_class_name(type) + '">' + type + '</a>';
+        }).
+        replace(/{@installModule\s+(\S+)?}/g, function(_, module) {
+          return explainModuleInstallation(module);
         });
     });
     text = parts.join('');
@@ -450,7 +544,6 @@ Doc.prototype = {
       dom.text(' Improve this doc');
     });
     dom.h(title(this), function() {
-
       notice('deprecated', 'Deprecated API', self.deprecated);
       if (self.ngdoc === 'error') {
         minerrMsg = lookupMinerrMsg(self);
@@ -1168,4 +1261,29 @@ function dashCase(name){
   return name.replace(DASH_CASE_REGEXP, function(letter, pos) {
     return (pos ? '-' : '') + letter.toLowerCase();
   });
+}
+//////////////////////////////////////////////////////////
+
+function explainModuleInstallation(moduleName){
+  var ngMod = ngModule(moduleName),
+    modulePackage = 'angular-' + moduleName,
+    modulePackageFile = modulePackage + '.js';
+
+  return '<h1>Installation</h1>' +
+    '<p>First include <code>' + modulePackageFile +'</code> in your HTML:</p><pre><code>' +
+    '    &lt;script src=&quot;angular.js&quot;&gt;\n' +
+    '    &lt;script src=&quot;' + modulePackageFile + '&quot;&gt;</pre></code>' +
+
+    '<p>You can also find this file on the [Google CDN](https://developers.google.com/speed/libraries/devguide#angularjs), ' +
+    '<a href="http://bower.io/">Bower</a> (as <code>' + modulePackage + '</code>), ' +
+    'and on <a href="http://code.angularjs.org/">code.angularjs.org</a>.</p>' +
+
+    '<p>Then load the module in your application by adding it as a dependant module:</p><pre><code>' +
+    '    angular.module(\'app\', [\'' + ngMod + '\']);</pre></code>' +
+
+    '<p>With that you\'re ready to get started!</p>';
+}
+
+function ngModule(moduleName) {
+  return 'ng' + moduleName[0].toUpperCase() + moduleName.substr(1);
 }
